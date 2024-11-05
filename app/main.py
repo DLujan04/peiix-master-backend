@@ -11,11 +11,12 @@ app = Flask(__name__)
 # Configurar el puerto (5000 por defecto)
 PORT = int(os.getenv("PORT", 5000))
 
-# Cargar tokens en la configuración de Flask
+# Cargar tokens y URL base en la configuración de Flask
 app.config['ACCESS_TOKEN'] = os.getenv("ACCESS_TOKEN")
 app.config['BP_TOKEN'] = os.getenv("BP_TOKEN")
 app.config['REFRESH_TOKEN'] = os.getenv("REFRESH_TOKEN")
 app.config['USER_TOKEN'] = os.getenv("USER_TOKEN")
+app.config['BASE_API_URL'] = os.getenv("BASE_API_URL")  # URL de la API
 
 # Importar y registrar los blueprints
 from app.routes.authorization import authorization_blueprint

@@ -40,7 +40,7 @@ def get_transactions():
             token = auth_header
         
         headers = {
-            'Authorization': token,
+            'Authorization': f"Bearer {token}",
             'bp-token': current_app.config['BP_TOKEN']
         }
         
@@ -64,10 +64,16 @@ def get_transactions():
         
         logger.debug(f"Parámetros de la petición: {params}")
         
+        # Usar URL base desde la configuración
+        api_base_url = current_app.config.get('BASE_API_URL')
+        if not api_base_url:
+            raise ValueError("BASE_API_URL no está configurado en el servidor.")
+
         response = requests.get(
-            'http://ec2-107-20-101-226.compute-1.amazonaws.com/transactions',
+            f"{api_base_url}/transactions",
             headers=headers,
-            params=params
+            params=params,
+            verify=False
         )
         
         logger.debug(f"Respuesta de la API: Status {response.status_code}")

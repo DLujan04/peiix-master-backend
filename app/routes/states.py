@@ -21,11 +21,15 @@ def get_estados():
             'Authorization': auth_header,  
         }
         
-        logger.debug(f"Headers enviados a la API: {headers}")
-
+        # Usar URL base desde la configuración
+        api_base_url = current_app.config.get('BASE_API_URL')
+        if not api_base_url:
+            raise ValueError("BASE_API_URL no está configurado en el servidor.")
+        
         response = requests.get(
-            'http://ec2-107-20-101-226.compute-1.amazonaws.com/estados',
-            headers=headers
+            f"{api_base_url}/estados",
+            headers=headers,
+            verify=False
         )
         
         logger.debug(f"Código de estado de la respuesta: {response.status_code}")
@@ -65,11 +69,15 @@ def get_municipios(id_estado):
             'Authorization': auth_header,  
         }
         
-        logger.debug(f"Headers enviados a la API: {headers}")
+        # Usar URL base desde la configuración
+        api_base_url = current_app.config.get('BASE_API_URL')
+        if not api_base_url:
+            raise ValueError("BASE_API_URL no está configurado en el servidor.")
 
         response = requests.get(
-            f'http://ec2-107-20-101-226.compute-1.amazonaws.com/estados/{id_estado}',
-            headers=headers
+            f"{api_base_url}/estados/{id_estado}",
+            headers=headers,
+            verify=False
         )
         
         logger.debug(f"Código de estado de la respuesta: {response.status_code}")

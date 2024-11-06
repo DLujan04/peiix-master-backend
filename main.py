@@ -21,13 +21,9 @@ app.config['BASE_API_URL'] = os.getenv("BASE_API_URL")  # URL de la API
 # Importar y registrar los blueprints
 from app.routes.authorization import authorization_blueprint
 from app.routes.transactions import transactions_blueprint
-from app.routes.states import states_blueprint
-from app.routes.business import business_blueprint
 
 app.register_blueprint(authorization_blueprint)
 app.register_blueprint(transactions_blueprint)
-app.register_blueprint(states_blueprint)
-app.register_blueprint(business_blueprint)
 
 @app.route('/')
 def home():

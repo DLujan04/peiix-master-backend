@@ -85,7 +85,7 @@ def fetch_municipios_for_estado(headers, estado_id):
 @token_required
 def get_transactions():
     try:
-        # Configuración de parámetros
+        # Configuración de parámetros de fecha obligatorios
         date_from = request.args.get('dateFrom')
         date_to = request.args.get('dateTo')
         
@@ -93,9 +93,12 @@ def get_transactions():
             logger.error("Faltan parámetros requeridos dateFrom y/o dateTo")
             return jsonify({'error': 'dateFrom and dateTo are required'}), 400
         
-        size = request.args.get('size', 10)
-        page = request.args.get('page', 1)
+        # Parámetros de paginación
+        size = int(request.args.get('size', 10))  # Número de transacciones por página (10 por defecto)
+        page = int(request.args.get('page', 1))   # Página solicitada (1 por defecto)
         export_format = request.args.get('format', 'json').lower()
+
+        # Otros filtros opcionales
         device = request.args.get('device')
         bin_number = request.args.get('bin')
         capture_method = request.args.get('captureMethod')
@@ -126,13 +129,14 @@ def get_transactions():
             'card': card
         }
         
+        # Filtra parámetros nulos
         params = {k: v for k, v in params.items() if v is not None}
         
         api_base_url = current_app.config.get('BASE_API_URL')
         if not api_base_url:
             raise ValueError("BASE_API_URL no está configurado en el servidor.")
 
-        # Obtener las transacciones
+        # Obtener las transacciones desde la API externa
         response = requests.get(
             f"{api_base_url}/transactions",
             headers=headers,
@@ -143,13 +147,15 @@ def get_transactions():
         if response.status_code != 200:
             return jsonify({'error': 'Error en la API', 'details': response.text}), response.status_code
 
-        # Extraer datos de transacciones
+        # Extraer datos de transacciones y total de elementos para la paginación
         response_data = response.json()
         if 'data' not in response_data:
             logger.error("Formato inesperado de datos en la respuesta de la API")
             return jsonify({'error': 'Formato inesperado de datos en la respuesta de la API'}), 500
         
         transactions = response_data['data']
+        total_items = response_data.get('total', 0)  # Total de transacciones
+        total_pages = (total_items + size - 1) // size  # Calcula el total de páginas
 
         # Obtener datos adicionales de /estados, /giros, /sociedades
         additional_data = fetch_additional_data(headers)
@@ -168,6 +174,15 @@ def get_transactions():
             transaction['giro'] = random.choice(additional_data.get('giros', [])) if additional_data.get('giros') else None
             transaction['sociedad'] = random.choice(additional_data.get('sociedades', [])) if additional_data.get('sociedades') else None
 
+        # Estructura de respuesta con paginación
+        response_with_pagination = {
+            'data': transactions,
+            'currentPage': page,
+            'totalPages': total_pages,
+            'totalItems': total_items,
+            'pageSize': size
+        }
+
         # Exportar el archivo en el formato solicitado
         if export_format == 'csv':
             output = export_to_csv(transactions)
@@ -176,7 +191,7 @@ def get_transactions():
             output = export_to_pdf(transactions)
             return send_file(output, mimetype='application/pdf', as_attachment=True, download_name=f"transactions_page_{page}.pdf")
         else:
-            return jsonify(transactions), 200
+            return jsonify(response_with_pagination), 200
 
     except requests.RequestException as e:
         logger.error(f"Error en la petición HTTP: {str(e)}")

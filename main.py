@@ -17,6 +17,7 @@ app.config['BP_TOKEN'] = os.getenv("BP_TOKEN")
 app.config['REFRESH_TOKEN'] = os.getenv("REFRESH_TOKEN")
 app.config['USER_TOKEN'] = os.getenv("USER_TOKEN")
 app.config['BASE_API_URL'] = os.getenv("BASE_API_URL")  # URL de la API
+app.config['ENCRYPTION_KEY'] = os.getenv("ENCRYPTION_KEY") 
 
 # Importar y registrar los blueprints
 from app.routes.authorization import authorization_blueprint

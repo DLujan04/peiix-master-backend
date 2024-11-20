@@ -1,6 +1,12 @@
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, request, jsonify, current_app, send_file, render_template_string
 import requests
 import logging
+import csv
+import io
+from weasyprint import HTML
+from functools import wraps
+from datetime import datetime
+import math
 from ..utils import token_required
 
 logging.basicConfig(level=logging.DEBUG)
@@ -81,6 +87,213 @@ def get_transactions():
         
         return jsonify(response.json()), response.status_code
         
+    except requests.RequestException as e:
+        logger.error(f"Error en la petición HTTP: {str(e)}")
+        return jsonify({
+            'error': 'Error de conexión con la API',
+            'details': str(e)
+        }), 500
+    except Exception as e:
+        logger.error(f"Error inesperado: {str(e)}")
+        return jsonify({
+            'error': 'Error interno del servidor',
+            'details': str(e)
+        }), 500
+
+@transactions_blueprint.route('/export', methods=['GET'])
+@token_required
+def export_transactions():
+    try:
+        # Validar parámetros requeridos
+        date_from = request.args.get('dateFrom')
+        date_to = request.args.get('dateTo')
+        export_format = request.args.get('format', 'csv').lower()
+
+        if not date_from or not date_to:
+            logger.error("Faltan parámetros requeridos dateFrom y/o dateTo")
+            return jsonify({'error': 'dateFrom and dateTo are required'}), 400
+
+        if export_format not in ['csv', 'pdf']:
+            logger.error("Formato de exportación inválido")
+            return jsonify({'error': 'Format must be either csv or pdf'}), 400
+
+        # Obtener parámetros opcionales
+        size = request.args.get('size', type=int, default=100)  # Tamaño por página
+        page = request.args.get('page', type=int, default=1)    # Página inicial (1-based indexing)
+        device = request.args.get('device')
+        bin_number = request.args.get('bin')
+        capture_method = request.args.get('captureMethod')
+        transaction_status = request.args.get('transactionStatus')
+        transaction_type = request.args.get('transactionType')
+        card = request.args.get('card')
+
+        # Obtener tokens de los headers
+        auth_header = request.headers.get('Authorization')
+        logger.debug(f"Token en export_transactions: {auth_header}")
+
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
+        else:
+            token = auth_header
+
+        headers = {
+            'Authorization': f"Bearer {token}",
+            'bp-token': current_app.config['BP_TOKEN']
+        }
+
+        logger.debug(f"Headers a enviar a la API: {headers}")
+
+        params = {
+            'dateFrom': date_from,
+            'dateTo': date_to,
+            'size': size,
+            'page': page,
+            'device': device,
+            'bin': bin_number,
+            'captureMethod': capture_method,
+            'transactionStatus': transaction_status,
+            'transactionType': transaction_type,
+            'card': card
+        }
+
+        # Eliminar parámetros None
+        params = {k: v for k, v in params.items() if v is not None}
+
+        logger.debug(f"Parámetros de la petición: {params}")
+
+        # Usar URL base desde la configuración
+        api_base_url = current_app.config.get('BASE_API_URL')
+        if not api_base_url:
+            raise ValueError("BASE_API_URL no está configurado en el servidor.")
+
+        all_transactions = []
+        current_page = page
+
+        while True:
+            params['page'] = current_page
+            response = requests.get(
+                f"{api_base_url}/transactions",
+                headers=headers,
+                params=params,
+                verify=False  # Considera usar True en producción
+            )
+
+            logger.debug(f"Respuesta de la API: Status {response.status_code}")
+            if response.status_code != 200:
+                logger.error(f"Error al obtener transacciones: {response.text}")
+                return jsonify({'error': 'Error al obtener transacciones', 'details': response.text}), response.status_code
+
+            data = response.json()
+            logger.debug(f"Respuesta completa de la API: {data}")  # Añadido para depuración
+
+            transactions = data.get('data', [])
+            logger.debug(f"Transacciones obtenidas en página {current_page}: {len(transactions)}")
+            all_transactions.extend(transactions)
+
+            total = data.get('total', 0)
+            per_page = data.get('perPage', size)  # Usa 'perPage' de la respuesta o el valor enviado
+            if per_page == 0:
+                per_page = size  # Evita división por cero
+
+            # Calcular el número total de páginas
+            total_pages = math.ceil(total / per_page) if per_page else 1
+            logger.debug(f"Páginas Totales: {total_pages}, Página Actual: {current_page}")
+
+            if current_page >= total_pages:
+                break
+            current_page += 1
+
+        logger.debug(f"Total de transacciones obtenidas: {len(all_transactions)}")
+
+        if not all_transactions:
+            return jsonify({'message': 'No se encontraron transacciones para exportar'}), 200
+
+        # Generar nombre de archivo dinámico
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        if export_format == 'csv':
+            # Generar CSV
+            proxy = io.StringIO()
+            writer = csv.DictWriter(proxy, fieldnames=all_transactions[0].keys())
+            writer.writeheader()
+            writer.writerows(all_transactions)
+            mem = io.BytesIO()
+            mem.write(proxy.getvalue().encode('utf-8'))
+            mem.seek(0)
+            proxy.close()
+            filename = f"transactions_{timestamp}.csv"
+            return send_file(
+                mem,
+                as_attachment=True,
+                download_name=filename,
+                mimetype='text/csv'
+            )
+
+        elif export_format == 'pdf':
+            # Definir la plantilla HTML usando Jinja2
+            html_template = """
+            <html>
+                <head>
+                    <style>
+                        table { width: 100%; border-collapse: collapse; }
+                        th, td { border: 1px solid black; padding: 8px; text-align: left; }
+                        th { background-color: #f2f2f2; }
+                        h2 { text-align: center; }
+                    </style>
+                </head>
+                <body>
+                    <h2>Transacciones</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                {% for header in headers %}
+                                    <th>{{ header }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for txn in transactions %}
+                                <tr>
+                                    {% for header in headers %}
+                                        <td>{{ txn[header] if txn[header] is not none else '' }}</td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </body>
+            </html>
+            """
+
+            # Obtener los encabezados de las transacciones
+            headers = all_transactions[0].keys()
+
+            # Renderizar la plantilla con los datos
+            html_content = render_template_string(
+                html_template,
+                headers=headers,
+                transactions=all_transactions
+            )
+
+            logger.debug(f"Contenido HTML para PDF:\n{html_content}")
+
+            # Generar el PDF usando WeasyPrint
+            try:
+                pdf_file = HTML(string=html_content).write_pdf()
+            except Exception as e:
+                logger.error(f"Error al generar el PDF: {e}")
+                return jsonify({'error': 'Error al generar el PDF', 'details': str(e)}), 500
+
+            mem = io.BytesIO(pdf_file)
+            mem.seek(0)
+            filename = f"transactions_{timestamp}.pdf"
+            return send_file(
+                mem,
+                as_attachment=True,
+                download_name=filename,
+                mimetype='application/pdf'
+            )
+
     except requests.RequestException as e:
         logger.error(f"Error en la petición HTTP: {str(e)}")
         return jsonify({

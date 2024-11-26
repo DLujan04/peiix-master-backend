@@ -230,15 +230,30 @@ def export_transactions():
             )
 
         elif export_format == 'pdf':
-            # Definir la plantilla HTML usando Jinja2
+            # Definir las columnas importantes para el PDF
+            # Según la interfaz proporcionada
+            pdf_headers = ['transaction_id', 'total_amount', 'date', 'bank', 'transaction_status']
+
+            # Verificar que las columnas existan en los datos
+            available_headers = all_transactions[0].keys()
+            pdf_headers = [header for header in pdf_headers if header in available_headers]
+            logger.debug(f"Encabezados filtrados para PDF: {pdf_headers}")
+
+            if not pdf_headers:
+                logger.error("No se encontraron columnas válidas para el PDF.")
+                return jsonify({'error': 'No se encontraron columnas válidas para el PDF.'}), 500
+
+            # Definir la plantilla HTML usando Jinja2 con estilos ajustados
             html_template = """
             <html>
                 <head>
                     <style>
-                        table { width: 100%; border-collapse: collapse; }
-                        th, td { border: 1px solid black; padding: 8px; text-align: left; }
-                        th { background-color: #f2f2f2; }
-                        h2 { text-align: center; }
+                        @page { size: A4 landscape; margin: 10mm; }
+                        body { font-family: Arial, sans-serif; font-size: 8pt; }
+                        table { width: 100%; border-collapse: collapse; table-layout: fixed; word-wrap: break-word; }
+                        th, td { border: 1px solid #dddddd; padding: 4px; text-align: left; }
+                        th { background-color: #f2f2f2; font-size: 9pt; }
+                        h2 { text-align: center; font-size: 14pt; }
                     </style>
                 </head>
                 <body>
@@ -247,7 +262,7 @@ def export_transactions():
                         <thead>
                             <tr>
                                 {% for header in headers %}
-                                    <th>{{ header }}</th>
+                                    <th>{{ header.replace('_', ' ').capitalize() }}</th>
                                 {% endfor %}
                             </tr>
                         </thead>
@@ -265,17 +280,19 @@ def export_transactions():
             </html>
             """
 
-            # Obtener los encabezados de las transacciones
-            headers = all_transactions[0].keys()
-
-            # Renderizar la plantilla con los datos
+            # Renderizar la plantilla con las columnas filtradas
             html_content = render_template_string(
                 html_template,
-                headers=headers,
+                headers=pdf_headers,
                 transactions=all_transactions
             )
 
             logger.debug(f"Contenido HTML para PDF:\n{html_content}")
+
+            # Verificar que el HTML no esté vacío
+            if not html_content.strip():
+                logger.error("El contenido HTML generado para el PDF está vacío.")
+                return jsonify({'error': 'El contenido HTML para el PDF está vacío.'}), 500
 
             # Generar el PDF usando WeasyPrint
             try:
@@ -283,6 +300,11 @@ def export_transactions():
             except Exception as e:
                 logger.error(f"Error al generar el PDF: {e}")
                 return jsonify({'error': 'Error al generar el PDF', 'details': str(e)}), 500
+
+            # Verificar que el PDF no esté vacío
+            if not pdf_file:
+                logger.error("El archivo PDF generado está vacío.")
+                return jsonify({'error': 'El archivo PDF generado está vacío.'}), 500
 
             mem = io.BytesIO(pdf_file)
             mem.seek(0)

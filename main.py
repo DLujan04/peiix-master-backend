@@ -23,6 +23,7 @@ app.config['ENCRYPTION_KEY'] = os.getenv("ENCRYPTION_KEY")
 from app.routes.authorization import authorization_blueprint
 from app.routes.transactions import transactions_blueprint
 
+#test
 app.register_blueprint(authorization_blueprint)
 app.register_blueprint(transactions_blueprint)
 
